@@ -4,3 +4,7 @@ class UnsupportedContent(Exception):
 
 class UnsupportedParam(Exception):
     pass
+
+
+class InvalidStoredTemplate(Exception):
+    pass

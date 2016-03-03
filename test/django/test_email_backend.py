@@ -2,6 +2,7 @@ import pytest
 import mock
 from distutils.version import StrictVersion
 
+import requests
 from django import get_version
 from django.conf import settings
 from django.core.mail import send_mail
@@ -10,8 +11,9 @@ from django.core.mail import EmailMessage
 from django.core.mail import EmailMultiAlternatives
 
 from sparkpost.django.email_backend import SparkPostEmailBackend
-from sparkpost.django.exceptions import UnsupportedParam
+from sparkpost.django.exceptions import UnsupportedParam, InvalidStoredTemplate
 from sparkpost.django.exceptions import UnsupportedContent
+from sparkpost.exceptions import SparkPostAPIException
 from sparkpost.transmissions import Transmissions
 
 try:
@@ -206,3 +208,48 @@ def test_cc_bcc_reply_to():
             email = EmailMessage(**params)
             email.send()
         params.pop('reply_to')
+
+
+def test_stored_template():
+    def new_send(**kwargs):
+        assert 'text' not in kwargs
+        assert kwargs['template'] == 'stored_template'
+
+        return {
+            'total_accepted_recipients': 0,
+            'total_rejected_recipients': 0
+        }
+
+    with mock.patch.object(Transmissions, 'send') as mock_send:
+        mock_send.side_effect = new_send
+        email = EmailMessage(
+            subject='test subject', from_email="from@example.com",
+            to=['to@example.com']
+        )
+        email.template = "stored_template"
+        email.send()
+
+
+def test_stored_template_invalid():
+    mock_resp = mock.Mock()
+    mock_resp.status_code = 422
+    mock_resp.json = lambda: {
+        'errors': [
+            {
+                "message": "Subresource not found",
+                "description": "template 'invalid_stored_template' does not exist",
+                "code": "1603"
+            }
+        ]
+    }
+
+    with mock.patch.object(Transmissions, 'send') as mock_send:
+        mock_send.side_effect = SparkPostAPIException(mock_resp)
+
+        with pytest.raises(InvalidStoredTemplate):
+            email = EmailMessage(
+                subject='test subject', from_email="from@example.com",
+                to=['to@example.com']
+            )
+            email.template_name = "invalid_stored_template"
+            email.send()

@@ -2,8 +2,9 @@ from django.conf import settings
 from django.core.mail.backends.base import BaseEmailBackend
 
 from sparkpost import SparkPost
+from sparkpost.exceptions import SparkPostAPIException
 
-from .exceptions import UnsupportedContent
+from .exceptions import UnsupportedContent, InvalidStoredTemplate
 from .exceptions import UnsupportedParam
 
 
@@ -40,10 +41,14 @@ class SparkPostEmailBackend(BaseEmailBackend):
 
         params = dict(
             recipients=message.to,
-            text=message.body,
             from_email=message.from_email,
             subject=message.subject
         )
+
+        if hasattr(message, 'template'):
+            params['template'] = message.template
+        else:
+            params['text'] = message.body
 
         if hasattr(message, 'alternatives') and len(message.alternatives) > 0:
             for alternative in message.alternatives:
@@ -55,7 +60,12 @@ class SparkPostEmailBackend(BaseEmailBackend):
                         'Content type %s is not supported' % alternative[1]
                     )
 
-        return self.client.transmissions.send(**params)
+        try:
+            return self.client.transmissions.send(**params)
+        except SparkPostAPIException as e:
+            if any(err['code'] == '1603' for err in e.errors):
+                raise InvalidStoredTemplate(e)
+            raise
 
     @staticmethod
     def check_attachments(message):
