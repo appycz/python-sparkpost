@@ -214,6 +214,11 @@ def test_stored_template():
     def new_send(**kwargs):
         assert 'text' not in kwargs
         assert kwargs['template'] == 'stored_template'
+        assert kwargs['recipients'] == [{'address': {'email': 'to@example.com'},
+                                         'substitution_data': {'recipient_var': 'value'}}]
+        assert kwargs['substitution_data'] == {
+            'global_var': 'value'
+        }
 
         return {
             'total_accepted_recipients': 0,
@@ -224,9 +229,13 @@ def test_stored_template():
         mock_send.side_effect = new_send
         email = EmailMessage(
             subject='test subject', from_email="from@example.com",
-            to=['to@example.com']
+            to=[{'address': {'email': 'to@example.com'},
+                 'substitution_data': {'recipient_var': 'value'}}]
         )
         email.template = "stored_template"
+        email.substitution_data = {
+            'global_var': 'value'
+        }
         email.send()
 
 

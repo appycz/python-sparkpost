@@ -46,7 +46,10 @@ class SparkPostEmailBackend(BaseEmailBackend):
         )
 
         if hasattr(message, 'template'):
-            params['template'] = message.template
+            params.update({
+                'template': message.template,
+                'substitution_data': getattr(message, 'substitution_data', {}),
+            })
         else:
             params['text'] = message.body
 
