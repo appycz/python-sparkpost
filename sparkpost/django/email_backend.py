@@ -4,8 +4,7 @@ from django.core.mail.backends.base import BaseEmailBackend
 from sparkpost import SparkPost
 from sparkpost.exceptions import SparkPostAPIException
 
-from .exceptions import UnsupportedContent, InvalidStoredTemplate
-from .exceptions import UnsupportedParam
+from .exceptions import UnsupportedParam, UnsupportedContent, InvalidStoredTemplate, InvalidInlineTemplate
 
 
 class SparkPostEmailBackend(BaseEmailBackend):
@@ -42,16 +41,19 @@ class SparkPostEmailBackend(BaseEmailBackend):
         params = dict(
             recipients=message.to,
             from_email=message.from_email,
-            subject=message.subject
+            subject=message.subject,
+            text=message.body,
         )
 
-        if hasattr(message, 'template'):
-            params.update({
-                'template': message.template,
-                'substitution_data': getattr(message, 'substitution_data', {}),
-            })
-        else:
-            params['text'] = message.body
+        sparkpost_cfg = getattr(message, 'sparkpost', None)
+
+        if sparkpost_cfg:
+            self.check_inline_template(sparkpost_cfg)
+
+            if sparkpost_cfg.get('template'):
+                params.pop('text', None)
+
+            params.update(sparkpost_cfg)
 
         if hasattr(message, 'alternatives') and len(message.alternatives) > 0:
             for alternative in message.alternatives:
@@ -87,3 +89,9 @@ class SparkPostEmailBackend(BaseEmailBackend):
                     'The SparkPost Django email backend does not currently '
                     'support %s.' % param
                 )
+
+    @staticmethod
+    def check_inline_template(sparkpost_cfg):
+        if ('html' in sparkpost_cfg) != ('text' in sparkpost_cfg):  # xor
+            raise InvalidInlineTemplate("Both 'html' and 'text' must be present in 'EmailMessage.sparkpost'")
+

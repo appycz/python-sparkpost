@@ -8,3 +8,7 @@ class UnsupportedParam(Exception):
 
 class InvalidStoredTemplate(Exception):
     pass
+
+
+class InvalidInlineTemplate(Exception):
+    pass

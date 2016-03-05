@@ -2,7 +2,6 @@ import pytest
 import mock
 from distutils.version import StrictVersion
 
-import requests
 from django import get_version
 from django.conf import settings
 from django.core.mail import send_mail
@@ -11,7 +10,7 @@ from django.core.mail import EmailMessage
 from django.core.mail import EmailMultiAlternatives
 
 from sparkpost.django.email_backend import SparkPostEmailBackend
-from sparkpost.django.exceptions import UnsupportedParam, InvalidStoredTemplate
+from sparkpost.django.exceptions import UnsupportedParam, InvalidStoredTemplate, InvalidInlineTemplate
 from sparkpost.django.exceptions import UnsupportedContent
 from sparkpost.exceptions import SparkPostAPIException
 from sparkpost.transmissions import Transmissions
@@ -210,9 +209,76 @@ def test_cc_bcc_reply_to():
         params.pop('reply_to')
 
 
-def test_stored_template():
+def test_template_inline():
+    def new_send(**kwargs):
+        assert kwargs['subject'] == 'Some subject'
+        assert kwargs['html'] == '<p>template content</>'
+        assert kwargs['text'] == 'template content'
+        assert kwargs['recipients'] == [{'address': {'email': 'to@example.com'},
+                                         'substitution_data': {'recipient_var': 'value'}}]
+        assert kwargs['substitution_data'] == {
+            'global_var': 'value'
+        }
+
+        return {
+            'total_accepted_recipients': 0,
+            'total_rejected_recipients': 0
+        }
+
+    with mock.patch.object(Transmissions, 'send') as mock_send:
+        mock_send.side_effect = new_send
+        email = EmailMessage(
+            subject='Some subject', from_email="from@example.com",
+            to=[{'address': {'email': 'to@example.com'},
+                 'substitution_data': {'recipient_var': 'value'}}]
+        )
+        email.sparkpost = {
+            'html': '<p>template content</>',
+            'text': 'template content',
+            'substitution_data': {
+                'global_var': 'value'
+            }
+        }
+        email.send()
+
+
+def test_template_inline_missing():
+    def new_send(**kwargs):
+        assert kwargs['subject'] == 'Some subject'
+        assert kwargs['text'] == 'template content'
+        assert kwargs['recipients'] == [{'address': {'email': 'to@example.com'},
+                                         'substitution_data': {'recipient_var': 'value'}}]
+        assert kwargs['substitution_data'] == {
+            'global_var': 'value'
+        }
+
+        return {
+            'total_accepted_recipients': 0,
+            'total_rejected_recipients': 0
+        }
+
+    with mock.patch.object(Transmissions, 'send') as mock_send:
+        mock_send.side_effect = new_send
+        email = EmailMessage(
+            subject='Some subject', from_email="from@example.com",
+            to=[{'address': {'email': 'to@example.com'},
+                 'substitution_data': {'recipient_var': 'value'}}]
+        )
+        email.sparkpost = {
+            'text': 'template content',
+            'substitution_data': {
+                'global_var': 'value'
+            }
+        }
+
+        with pytest.raises(InvalidInlineTemplate):
+            email.send()
+
+
+def test_template_stored():
     def new_send(**kwargs):
         assert 'text' not in kwargs
+        assert kwargs['subject'] == 'Some subject'
         assert kwargs['template'] == 'stored_template'
         assert kwargs['recipients'] == [{'address': {'email': 'to@example.com'},
                                          'substitution_data': {'recipient_var': 'value'}}]
@@ -228,18 +294,20 @@ def test_stored_template():
     with mock.patch.object(Transmissions, 'send') as mock_send:
         mock_send.side_effect = new_send
         email = EmailMessage(
-            subject='test subject', from_email="from@example.com",
+            subject='Some subject', from_email="from@example.com",
             to=[{'address': {'email': 'to@example.com'},
                  'substitution_data': {'recipient_var': 'value'}}]
         )
-        email.template = "stored_template"
-        email.substitution_data = {
-            'global_var': 'value'
+        email.sparkpost = {
+            'template': "stored_template",
+            'substitution_data': {
+                'global_var': 'value'
+            }
         }
         email.send()
 
 
-def test_stored_template_invalid():
+def test_template_stored_invalid():
     mock_resp = mock.Mock()
     mock_resp.status_code = 422
     mock_resp.json = lambda: {
@@ -260,5 +328,5 @@ def test_stored_template_invalid():
                 subject='test subject', from_email="from@example.com",
                 to=['to@example.com']
             )
-            email.template_name = "invalid_stored_template"
+            email.sparkpost = {'template_name': 'invalid_stored_template'}
             email.send()
